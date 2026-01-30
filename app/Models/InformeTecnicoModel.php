@@ -19,7 +19,8 @@ class InformeTecnicoModel extends Model
             'kilometraje_actual',
             'kilometraje_proximo_servicio',
             'fecha_proximo_servicio',
-            'informe_final'
+            'informe_final',
+            'precio'
     ];
 
     protected bool $allowEmptyInserts = false;
