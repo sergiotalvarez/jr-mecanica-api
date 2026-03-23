@@ -12,65 +12,77 @@ class InformesTecnicos extends ResourceController
     protected $modelName = 'App\Models\InformeTecnicoModel';
     protected $format    = 'json';
 
-    public function index()
-    {
-        try {
-            $page = $this->request->getGet('page') ?: 1;
-            $rowsPerPage = $this->request->getGet('rowsPerPage') ?: 10;
-            $filter = $this->request->getGet('filter');
-            $sortBy = $this->request->getGet('sortBy') ?: 'fecha_hora';
-            $descending = $this->request->getGet('descending') === 'true';
+public function index()
+{
+    try {
+        $page = $this->request->getGet('page') ?: 1;
+        $rowsPerPage = $this->request->getGet('rowsPerPage') ?: 10;
+        $filter = $this->request->getGet('filter');
+        $sortBy = $this->request->getGet('sortBy') ?: 'fecha_hora';
+        $descending = $this->request->getGet('descending') === 'true';
 
-            $db = \Config\Database::connect();
-            $builder = $db->table('informes_tecnicos it');
+        $db = \Config\Database::connect();
+        $builder = $db->table('informes_tecnicos it');
 
-            $builder->select(
-                'it.id, it.fecha_hora, it.estado, it.precio, ' .
-                'c.apellido as cliente_apellido, c.nombres as cliente_nombres, ' .
-                'v.patente, ma.marca, mo.modelo'
-            );
-            $builder->join('clientes c', 'c.id = it.cliente_id', 'left');
-            $builder->join('vehiculos v', 'v.id = it.vehiculo_id', 'left');
-            $builder->join('modelos_vehiculos mo', 'mo.id = v.modelo_id', 'left');
-            $builder->join('marcas_vehiculos ma', 'ma.id = mo.marca_id', 'left');
+        $builder->select(
+            'it.id, it.fecha_hora, it.estado, it.precio, ' .
+            'c.apellido as cliente_apellido, c.nombres as cliente_nombres, ' .
+            'v.patente, ma.marca, mo.modelo'
+        );
+        $builder->join('clientes c', 'c.id = it.cliente_id', 'left');
+        $builder->join('vehiculos v', 'v.id = it.vehiculo_id', 'left');
+        $builder->join('modelos_vehiculos mo', 'mo.id = v.modelo_id', 'left');
+        $builder->join('marcas_vehiculos ma', 'ma.id = mo.marca_id', 'left');
 
-            if ($filter) {
-                $builder->groupStart()
-                        ->like('LOWER(v.patente)', strtolower($filter))
-                        ->orLike('LOWER(c.apellido)', strtolower($filter))
-                        ->orLike('LOWER(c.nombres)', strtolower($filter))
-                        ->groupEnd();
-            }
-
-            $total = $builder->countAllResults(false);
-
-            $sortableColumns = [
-                'id' => 'it.id',
-                'fecha_hora' => 'it.fecha_hora',
-                'precio' => 'it.precio'
-            ];
-            $sortColumn = $sortableColumns[$sortBy] ?? 'it.fecha_hora';
+       if ($filter) {
+            $filterLower = strtolower($filter);
             
-            $offset = ($page - 1) * $rowsPerPage;
-            $builder->orderBy($sortColumn, $descending ? 'DESC' : 'ASC');
-            if ($rowsPerPage > 0) {
-                $builder->limit($rowsPerPage, $offset);
-            }
-
-            // --- LÍNEA DE DEBUG ---
-            // Descomenta la siguiente línea para ver el SQL exacto que se está generando
-            // log_message('error', 'SQL Query: ' . $builder->getCompiledSelect());
-
-            $data = $builder->get()->getResultArray();
-
-            return $this->respond(['total' => $total, 'data' => $data]);
-
-        } catch (\Exception $e) {
-            log_message('error', '[API InformesTecnicos::index] ' . $e->getMessage() . ' en la línea ' . $e->getLine());
-            // ¡ESTA ES LA LÍNEA MÁS IMPORTANTE! DEVOLVERÁ EL ERROR REAL
-            return $this->failServerError('Error al consultar los informes: ' . $e->getMessage());
+            $builder->groupStart()
+                    // 1. Casteamos el ID de informe a TEXT para que Postgres no explote
+                    ->where("CAST(it.id AS TEXT) LIKE", "%$filter%") 
+                    
+                    // 2. Si el DNI también es un número en tu DB, haz lo mismo:
+                    ->orWhere("CAST(c.numero_documento AS TEXT) LIKE", "%$filter%")
+                    
+                    // 3. Los campos que ya son texto siguen igual
+                    ->orLike('LOWER(v.patente)', $filterLower)
+                    ->orLike('LOWER(c.apellido)', $filterLower)
+                    ->orLike('LOWER(c.nombres)', $filterLower)
+                    ->groupEnd();
         }
+
+        // Clonamos para el conteo total
+        $totalBuilder = clone $builder;
+        $total = $totalBuilder->countAllResults();
+
+        // Ordenamiento
+        $sortableColumns = [
+            'id' => 'it.id',
+            'fecha_hora' => 'it.fecha_hora',
+            'precio' => 'it.precio',
+            'patente' => 'v.patente'
+        ];
+        $sortColumn = $sortableColumns[$sortBy] ?? 'it.fecha_hora';
+        
+        $offset = ($page - 1) * $rowsPerPage;
+        $builder->orderBy($sortColumn, $descending ? 'DESC' : 'ASC');
+        
+        if ($rowsPerPage > 0) {
+            $builder->limit($rowsPerPage, $offset);
+        }
+
+        $data = $builder->get()->getResultArray();
+
+        return $this->respond([
+            'total' => (int)$total, 
+            'data' => $data
+        ]);
+
+    } catch (\Exception $e) {
+        log_message('error', '[API InformesTecnicos::index] ' . $e->getMessage());
+        return $this->failServerError('Error: ' . $e->getMessage());
     }
+}
 
     public function create()
     {
